@@ -7,6 +7,8 @@ import {
   GraphQLInt,
   GraphQLList,
   GraphQLString,
+  GraphQLInterfaceType,
+  GraphQLID,
 } from 'graphql';
 
 import pkg from 'join-monster';
@@ -24,79 +26,71 @@ const knex = require('knex')({
 });
 
 // begin your definition of the schema
-const Tag = new GraphQLObjectType({
-  name: 'Tags',
+const Thing = new GraphQLInterfaceType({
+  name: 'Thing',
   extensions: {
     joinMonster: {
-      sqlTable: 'tags',
+      sqlTable: 'things',
       uniqueKey: 'id',
+      alwaysFetch: ['things_type'],
     },
+  },
+  resolveType: (value, context, info) => {
+    return value.things_type
   },
   fields: {
     id: {
-      type: GraphQLInt
+      type: GraphQLID,
+      sqlColumn: 'id'
     },
-    body: {
+    name: {
+      type: GraphQLString,
+      sqlColumn: 'names'
+    }
+  }
+})
+
+const Foo = new GraphQLObjectType({
+  name: 'Foo',
+  interfaces: [Thing],
+  fields: {
+    id: {
+      type: GraphQLID
+    },
+    name: {
+      type: GraphQLString
+    }
+  }
+});
+
+const Bar = new GraphQLObjectType({
+  name: 'Bar',
+  interfaces: [Thing],
+  fields: {
+    id: {
+      type: GraphQLID
+    },
+    name: {
       type: GraphQLString
     },
+    description: {
+      type: GraphQLString
+    }
   }
 });
 
-const UserTag = new GraphQLObjectType({
-  name: 'UserTags',
-  extensions: {
-    joinMonster: {
-      sqlTable: 'user_tags',
-      uniqueKey: 'user_id', // this is the magic that allows the join to work
-    },
-  },
-  fields: {
-    a_tags: {
-      type: new GraphQLList(Tag),
-      extensions: {
-        joinMonster: {
-          sqlJoin: (ut, t) => `${ut}.tag_id = ${t}.id and ${ut}.type = 'a'`
-        }
-      }
-    },
-    b_tags: {
-      type: new GraphQLList(Tag),
-      extensions: {
-        joinMonster: {
-          sqlJoin: (ut, t) => `${ut}.tag_id = ${t}.id and ${ut}.type = 'b'`
-        }
-      }
-    },
-    c_tags: {
-      type: new GraphQLList(Tag),
-      extensions: {
-        joinMonster: {
-          sqlJoin: (ut, t) => `${ut}.tag_id = ${t}.id and ${ut}.type = 'c'`
-        }
-      }
-    },
-  }
-});
-
-const User = new GraphQLObjectType({
-  name: 'Users',
-  extensions: {
-    joinMonster: {
-      sqlTable: 'users',
-      uniqueKey: 'id',
-    },
-  },
+const Baz = new GraphQLObjectType({
+  name: 'Baz',
+  interfaces: [Thing],
   fields: {
     id: {
-      type: GraphQLInt
+      type: GraphQLID
     },
-    tags: {
-      type: UserTag,
-      extensions: {
-        joinMonster: {
-          sqlJoin: (u, ut) => `${u}.id = ${ut}.user_id`
-        },
-      },
+    name: {
+      type: GraphQLString
+    },
+    description: {
+      type: GraphQLString
     }
   }
 });
@@ -105,8 +99,8 @@ const User = new GraphQLObjectType({
 const QueryRoot = new GraphQLObjectType({
   name: 'Query',
   fields: () => ({
-    users: {
-      type: new GraphQLList(User),
+    things: {
+      type: new GraphQLList(Thing),
       resolve: (parent, args, context, resolveInfo) => {
         return joinMonster(resolveInfo, {}, sql => {
           return knex.raw(sql)
@@ -118,7 +112,8 @@ const QueryRoot = new GraphQLObjectType({
 
 const schema = new GraphQLSchema({
   description: 'a test schema',
-  query: QueryRoot
+  query: QueryRoot,
+  types: [Foo, Bar, Baz]
 });
 
 
@@ -126,18 +121,16 @@ const schema = new GraphQLSchema({
   // define the query you want to test
   const source = `
   {
-    users {
+    things {
       id
-      tags {
-        a_tags {
-          id
-        }
-        b_tags {
-          id
-        }
-        c_tags {
-          id
-        }
+      name
+      
+      ... on Bar {
+        description
+      }
+
+      ... on Baz {
+        description
       }
     }
   }
@@ -145,29 +138,10 @@ const schema = new GraphQLSchema({
 
   // define the expected result
   const expected = {
-    users: [
-      {
-        id: 1,
-        tags: {
-          a_tags: [
-            {
-              id: 1,
-            },
-            {
-              id: 3,
-            }
-          ],
-          b_tags: [
-            {
-              id: 2,
-            },
-            {
-              id: 4,
-            }
-          ],
-          c_tags: []
-        }
-      }
+    things: [
+      { id: '1', name: 'A Foo Thing' },
+      { id: '2', name: 'A Bar Thing', description: 'Bar Description' },
+      { id: '3', name: 'A Baz Thing', description: 'Baz Description' }
     ]
   };
   
